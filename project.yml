@@ -1,0 +1,55 @@
+name: ScrollCapture
+options:
+  bundleIdPrefix: com.mirek
+  deploymentTarget:
+    macOS: "27.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Same stable self-signed identity as Glosso: Accessibility and Screen Recording
+    # grants are pinned to it, so they survive rebuilds.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Glosso Self-Signed"
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
+    ENABLE_DEBUG_DYLIB: NO
+  configs:
+    Debug:
+      ENABLE_HARDENED_RUNTIME: NO
+    Release:
+      ENABLE_HARDENED_RUNTIME: YES
+targets:
+  ScrollCapture:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    info:
+      path: Generated/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleDisplayName: ScrollCapture
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+    entitlements:
+      path: Generated/ScrollCapture.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mirek.scrollcapture
+    scheme:
+      testTargets:
+        - ScrollCaptureTests
+  ScrollCaptureTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: ScrollCapture
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mirek.scrollcapture.tests
+        GENERATE_INFOPLIST_FILE: YES
