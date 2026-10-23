@@ -5,3 +5,5 @@
 .DS_Store
 # Third-party reference binaries (reverse-engineering input), never commit
 *.dmg
+# Test screenshots dropped in the repo root
+/*.png

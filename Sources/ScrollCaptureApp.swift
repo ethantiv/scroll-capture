@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import ServiceManagement
 import SwiftUI
 
 @main
@@ -10,13 +11,11 @@ struct ScrollCaptureApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Text(appDelegate.status)
+            if let status = appDelegate.status { Text(status) }
             Button(appDelegate.busy ? "Przerwij" : "Zrób zrzut przewijany  ⌃⌥⌘S") { appDelegate.trigger() }
-            Divider()
-            Toggle("Zapisuj do pliku zamiast do schowka", isOn: $saveToFile)
-            Button("Uprawnienie Dostępność…") { AppDelegate.openSettings("Privacy_Accessibility") }
-            Button("Uprawnienie Nagrywanie ekranu…") { AppDelegate.openSettings("Privacy_ScreenCapture") }
-            Divider()
+            Toggle("Zapisuj do pliku", isOn: $saveToFile)
+            Toggle("Uruchamiaj przy logowaniu", isOn: Binding(get: { appDelegate.launchAtLogin },
+                                                               set: { appDelegate.setLaunchAtLogin($0) }))
             Button("Zakończ") { NSApplication.shared.terminate(nil) }
         } label: {
             Group {
@@ -31,9 +30,12 @@ struct ScrollCaptureApp: App {
 @Observable
 final class AppDelegate: NSObject, NSApplicationDelegate {
     nonisolated static let saveToFileKey = "saveToFile"
-    var status = "Najedź kursorem na okno i naciśnij ⌃⌥⌘S"
+    /// Outcome of the last capture; nothing before the first one.
+    var status: String?
     var busy: Bool { task != nil }
     private var task: Task<Void, Never>?
+    /// Mirrors `SMAppService` (not observable itself); `.requiresApproval` counts as on, as in Glosso.
+    private(set) var launchAtLogin = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
     @ObservationIgnored private var hotkey: GlobalHotkey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -42,6 +44,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.trigger()
         }
         _ = Self.permissionsGranted(prompt: true)
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            status = "Nie udało się zmienić autostartu: \(error.localizedDescription)"
+        }
+        launchAtLogin = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
     }
 
     /// Pressing the hotkey again while a capture runs cancels it.
@@ -91,10 +102,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ax = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": prompt] as CFDictionary)
         let screen = CGPreflightScreenCaptureAccess() || (prompt && CGRequestScreenCaptureAccess())
         return ax && screen
-    }
-
-    static func openSettings(_ pane: String) {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!)
     }
 }
 
