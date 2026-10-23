@@ -18,7 +18,8 @@ enum CaptureError: LocalizedError {
 /// Shottr does the same: `CGEventCreateScrollWheelEvent2` + `CGEventPost`, then compares consecutive captures.
 @MainActor
 struct ScrollCapturer {
-    var maxHeight = 40_000
+    /// Shottr's default; the final image is copied a few times, so 40 000 px peaked near 2 GB.
+    var maxHeight = 20_000
     /// Lets smooth-scrolling apps finish moving and repainting before the next capture.
     var settleDelay: Duration = .milliseconds(350)
     /// Extra captures after a failed match before the capture stops.
@@ -49,7 +50,8 @@ struct ScrollCapturer {
         let firstImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         // The window's rounded bottom corners are transparent: every appended slice would carry a notch at both sides.
         // Trimming the corner radius also drops the overlay scroller at the right edge.
-        let trim = max(Frame(firstImage).cornerRadius, Int(16 * scale))
+        // Capped: a translucent window (a see-through terminal) has no opaque pixel in the bottom row at all.
+        let trim = min(max(Frame(firstImage).cornerRadius, Int(16 * scale)), Int(32 * scale))
         crop = crop.insetBy(dx: CGFloat(trim), dy: 0)
         func cropped(_ image: CGImage) throws -> Frame {
             guard let part = image.cropping(to: crop) else { throw CaptureError.captureFailed }

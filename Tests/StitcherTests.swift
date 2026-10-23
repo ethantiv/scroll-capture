@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import ScrollCapture
 
@@ -76,6 +77,15 @@ import Testing
         corner.pixels[25] = 0x80FF_FFFF // half-transparent edge pixel
         #expect(corner.cornerRadius == 6)
         #expect(opaque.cornerRadius == 0)
+    }
+
+    /// `Frame(CGImage)` and `cgImage` must agree on the byte order, and `cornerRadius` on where alpha sits.
+    @Test func frameSurvivesCGImageRoundTrip() throws {
+        var frame = Frame(width: 10, height: 3, pixels: Array(repeating: 0xFF20_4060, count: 30))
+        for x in 0..<4 { frame.pixels[20 + x] = 0 }
+        let back = Frame(try #require(frame.cgImage(colorSpace: nil)))
+        #expect(back == frame)
+        #expect(back.cornerRadius == 4)
     }
 
     /// A spinner changing a few rows before the page moves must not fix the scrolling band.

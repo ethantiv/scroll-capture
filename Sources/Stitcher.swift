@@ -17,6 +17,7 @@ struct Stitcher {
     static let strips = 16
     private let first: Frame
     private var last: Frame
+    private var lastHashes: [UInt64] = []
     /// Rows that scroll (everything between a static header and footer); empty until the first movement.
     private var band: Range<Int> = 0..<0
     private var body: [UInt32] = []
@@ -46,14 +47,17 @@ struct Stitcher {
             guard let rows = Self.changedRows(first, next) else { return 0 }
             band = rows
             body = Array(first.pixels[band.lowerBound * w..<band.upperBound * w])
+            lastHashes = hashes(last)
         }
-        let match = Self.findShift(hashes(last), hashes(next), expected: expectedShift)
+        let nextHashes = hashes(next)
+        let match = Self.findShift(lastHashes, nextHashes, expected: expectedShift)
         lastMatch = match
         // Keep the band only from a pair that really moved: one fixed by a spinner or a dropped scroll would spoil every later step.
         if fresh && (match.shift ?? 0) == 0 { band = 0..<0; body = []; return match.shift }
         guard let shift = match.shift else { return nil }
         body += next.pixels[(band.upperBound - shift) * w..<band.upperBound * w]
         last = next
+        lastHashes = nextHashes
         return shift
     }
 

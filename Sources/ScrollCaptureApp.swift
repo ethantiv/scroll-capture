@@ -12,7 +12,8 @@ struct ScrollCaptureApp: App {
     var body: some Scene {
         MenuBarExtra {
             if let status = appDelegate.status { Text(status) }
-            Button(appDelegate.busy ? "Przerwij" : "Zrób zrzut przewijany  ⌃⌥⌘S") { appDelegate.trigger() }
+            // The capture takes the window under the cursor, which a menu click leaves over the menu: start it with the hotkey only.
+            if appDelegate.busy { Button("Przerwij") { appDelegate.trigger() } } else { Text("Zrzut przewijany: ⌃⌥⌘S nad oknem") }
             Toggle("Zapisuj do pliku", isOn: $saveToFile)
             Toggle("Uruchamiaj przy logowaniu", isOn: Binding(get: { appDelegate.launchAtLogin },
                                                                set: { appDelegate.setLaunchAtLogin($0) }))
@@ -36,14 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var task: Task<Void, Never>?
     /// Mirrors `SMAppService` (not observable itself); `.requiresApproval` counts as on, as in Glosso.
     private(set) var launchAtLogin = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
-    @ObservationIgnored private var hotkey: GlobalHotkey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
-        hotkey = GlobalHotkey(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(controlKey | optionKey | cmdKey)) { [weak self] in
+        let registered = GlobalHotkey.register(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(controlKey | optionKey | cmdKey)) { [weak self] in
             self?.trigger()
         }
-        _ = Self.permissionsGranted(prompt: true)
+        if !registered { status = "Nie udało się zarejestrować skrótu ⌃⌥⌘S" }
+        _ = Self.permissionsGranted()
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -58,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Pressing the hotkey again while a capture runs cancels it.
     func trigger() {
         if let task { task.cancel(); return }
-        guard Self.permissionsGranted(prompt: true) else {
+        guard Self.permissionsGranted() else {
             status = "Brak uprawnień: Dostępność i Nagrywanie ekranu"
             NSSound.beep()
             return
@@ -68,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer { task = nil }
             do {
                 let image = try await ScrollCapturer().capture()
-                status = try deliver(image)
+                status = deliver(image)
                 NSSound(named: "Glass")?.play()
             } catch is CancellationError {
                 status = "Przerwano"
@@ -79,46 +80,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func deliver(_ image: CGImage) throws -> String {
+    /// A failed file write (folder on an unplugged disk) falls back to the clipboard rather than losing the capture.
+    private func deliver(_ image: CGImage) -> String {
         let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!
         let size = "\(image.width)×\(image.height) px"
-        guard UserDefaults.standard.bool(forKey: Self.saveToFileKey) else {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setData(png, forType: .png)
-            return "Skopiowano do schowka (\(size))"
+        var failure = ""
+        if UserDefaults.standard.bool(forKey: Self.saveToFileKey) {
+            // Same folder as the system screenshot tool, Desktop by default.
+            let folder = UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location")
+                .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+                ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Desktop")
+            let name = "Scroll Capture \(Date.now.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day().time(includingFractionalSeconds: false).timeSeparator(.omitted))).png"
+            let url = folder.appending(path: name)
+            do {
+                try png.write(to: url)
+                return "Zapisano \(url.lastPathComponent) (\(size))"
+            } catch {
+                failure = "Nie zapisano pliku (\(error.localizedDescription)). "
+            }
         }
-        // Same folder as the system screenshot tool, Desktop by default.
-        let folder = UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location")
-            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Desktop")
-        let name = "Scroll Capture \(Date.now.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day().time(includingFractionalSeconds: false).timeSeparator(.omitted))).png"
-        let url = folder.appending(path: name)
-        try png.write(to: url)
-        return "Zapisano \(url.lastPathComponent) (\(size))"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setData(png, forType: .png)
+        return "\(failure)Skopiowano do schowka (\(size))"
     }
 
     /// Accessibility posts the scroll events; Screen Recording takes the screenshots.
-    private static func permissionsGranted(prompt: Bool) -> Bool {
-        let ax = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": prompt] as CFDictionary)
-        let screen = CGPreflightScreenCaptureAccess() || (prompt && CGRequestScreenCaptureAccess())
+    private static func permissionsGranted() -> Bool {
+        let ax = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        let screen = CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess()
         return ax && screen
     }
 }
 
 /// Carbon hot key: needs no permission and swallows the chord, unlike an NSEvent global monitor.
+/// Stays registered until the app quits; false when the system refuses the chord.
 @MainActor
-final class GlobalHotkey {
+enum GlobalHotkey {
     private static var action: (() -> Void)?
-    private var ref: EventHotKeyRef?
 
-    init(keyCode: UInt32, modifiers: UInt32, action: @escaping () -> Void) {
+    static func register(keyCode: UInt32, modifiers: UInt32, action: @escaping () -> Void) -> Bool {
         Self.action = action
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
             MainActor.assumeIsolated { GlobalHotkey.action?() }
             return noErr
         }, 1, &spec, nil, nil)
-        RegisterEventHotKey(keyCode, modifiers, EventHotKeyID(signature: OSType(0x5343_5054), id: 1),
-                            GetApplicationEventTarget(), 0, &ref)
+        var ref: EventHotKeyRef?
+        return RegisterEventHotKey(keyCode, modifiers, EventHotKeyID(signature: OSType(0x5343_5054), id: 1),
+                                   GetApplicationEventTarget(), 0, &ref) == noErr
     }
 }
