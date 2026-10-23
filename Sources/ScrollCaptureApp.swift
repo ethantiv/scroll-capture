@@ -19,8 +19,10 @@ struct ScrollCaptureApp: App {
             Divider()
             Button("Zakończ") { NSApplication.shared.terminate(nil) }
         } label: {
-            Image(systemName: appDelegate.busy ? "arrow.down.circle.fill" : "arrow.down.to.line.compact")
-                .accessibilityLabel("ScrollCapture")
+            Group {
+                if appDelegate.busy { Image(systemName: "arrow.down.circle.fill") } else { Image("MenuBarIcon") }
+            }
+            .accessibilityLabel("ScrollCapture")
         }
     }
 }

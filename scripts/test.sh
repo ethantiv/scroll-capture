@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline unit tests. --adhoc signs ad hoc (no "Glosso Self-Signed" certificate needed).
+# Offline unit tests. --adhoc signs ad hoc (no "Local Self-Signed" certificate needed).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 EXTRA=()
