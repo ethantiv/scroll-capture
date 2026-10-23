@@ -78,6 +78,15 @@ import Testing
         #expect(opaque.cornerRadius == 0)
     }
 
+    /// A spinner changing a few rows before the page moves must not fix the scrolling band.
+    @Test func bandComesFromAPairThatMoved() {
+        var stitcher = Stitcher(first: Self.frame(offset: 0))
+        var spinner = Self.frame(offset: 0)
+        for i in (Self.header + 10) * Self.width..<(Self.header + 12) * Self.width { spinner.pixels[i] ^= 0xFF }
+        #expect(stitcher.append(spinner, expectedShift: 25) == nil)
+        #expect(stitcher.append(Self.frame(offset: 25), expectedShift: 25) == 25)
+    }
+
     @Test func unrelatedFrameIsRejectedAndKeepsStitchedImage() {
         var stitcher = Stitcher(first: Self.frame(offset: 0))
         #expect(stitcher.append(Self.frame(offset: 25), expectedShift: 25) == 25)

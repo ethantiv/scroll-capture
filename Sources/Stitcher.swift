@@ -41,13 +41,16 @@ struct Stitcher {
     mutating func append(_ next: Frame, expectedShift: Int) -> Int? {
         guard next.width == first.width, next.height == first.height else { return nil }
         let w = first.width
-        if band.isEmpty {
+        let fresh = band.isEmpty
+        if fresh {
             guard let rows = Self.changedRows(first, next) else { return 0 }
             band = rows
             body = Array(first.pixels[band.lowerBound * w..<band.upperBound * w])
         }
         let match = Self.findShift(hashes(last), hashes(next), expected: expectedShift)
         lastMatch = match
+        // Keep the band only from a pair that really moved: one fixed by a spinner or a dropped scroll would spoil every later step.
+        if fresh && (match.shift ?? 0) == 0 { band = 0..<0; body = []; return match.shift }
         guard let shift = match.shift else { return nil }
         body += next.pixels[(band.upperBound - shift) * w..<band.upperBound * w]
         last = next

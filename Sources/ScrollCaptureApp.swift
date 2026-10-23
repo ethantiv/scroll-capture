@@ -91,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let folder = UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location")
             .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Desktop")
-        let name = "Scroll Capture \(Date.now.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false).timeSeparator(.omitted))).png"
+        let name = "Scroll Capture \(Date.now.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day().time(includingFractionalSeconds: false).timeSeparator(.omitted))).png"
         let url = folder.appending(path: name)
         try png.write(to: url)
         return "Zapisano \(url.lastPathComponent) (\(size))"

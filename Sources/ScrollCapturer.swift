@@ -29,12 +29,14 @@ struct ScrollCapturer {
         guard let point = CGEvent(source: nil)?.location else { throw CaptureError.noWindow }
         let (filter, config, bounds) = try await Self.windowFilter(at: point)
         let scale = CGFloat(filter.pointPixelScale)
-        // A third of the window per step, Shottr's cap too: two thirds of every frame overlap the previous one.
-        let step = Int32(bounds.height / 3)
+        // Only the scrolling view (Safari's page without its toolbar and tabs), in the captured image's pixels.
+        // An AX area outside the picked window (a floating panel on top) intersects to null: fall back to the window.
+        let hit = Self.scrollArea(at: point)?.intersection(bounds) ?? .null
+        let area = hit.isEmpty ? bounds : hit
+        // A third of the scroll area per step, Shottr's cap too: two thirds of every frame overlap the previous one.
+        let step = Int32(area.height / 3)
         let expected = Int(CGFloat(step) * scale)
         let parking = Self.parkingSpot(outside: bounds)
-        // Only the scrolling view (Safari's page without its toolbar and tabs), in the captured image's pixels.
-        let area = Self.scrollArea(at: point)?.intersection(bounds) ?? bounds
         var crop = CGRect(x: (area.minX - bounds.minX) * scale, y: (area.minY - bounds.minY) * scale,
                           width: area.width * scale, height: area.height * scale).integral
         Self.log.info("start: window \(bounds.debugDescription, privacy: .public) scroll area \(area.debugDescription, privacy: .public) scale \(scale) step \(step) pt, AX trusted \(AXIsProcessTrusted())")
