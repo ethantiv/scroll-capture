@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchAtLogin = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
     }
 
-    /// Pressing the hotkey again while a capture runs cancels it.
+    /// Pressing the hotkey again, a click or a key press while a capture runs stops it; the capture keeps what it has stitched.
     func trigger() {
         if let task { task.cancel(); return }
         guard Self.permissionsGranted() else {
@@ -64,9 +64,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSSound.beep()
             return
         }
-        status = "Przewijam… (⌃⌥⌘S przerywa)"
+        status = "Przewijam… (klik, klawisz lub ⌃⌥⌘S kończy)"
+        // Like Shottr's monitor: the user grabbing the mouse would otherwise fight the cursor moves. Our own events are only moves and scrolls.
+        let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.task?.cancel() }
+        }
         task = Task {
-            defer { task = nil }
+            defer {
+                task = nil
+                if let monitor { NSEvent.removeMonitor(monitor) }
+            }
             do {
                 let image = try await ScrollCapturer().capture()
                 status = deliver(image)

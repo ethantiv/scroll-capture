@@ -3,13 +3,14 @@ import OSLog
 import ScreenCaptureKit
 
 enum CaptureError: LocalizedError {
-    case noWindow, captureFailed, misaligned
+    case noWindow, captureFailed, misaligned, notScrolled
 
     var errorDescription: String? {
         switch self {
         case .noWindow: "Brak okna pod kursorem."
         case .captureFailed: "Nie udało się zrobić zrzutu okna."
         case .misaligned: "Nie udało się dopasować kolejnych zrzutów (animacja lub zmienna treść?)."
+        case .notScrolled: "Okno się nie przewinęło (strona już na dole albo kursor poza obszarem przewijania?)."
         }
     }
 }
@@ -62,36 +63,44 @@ struct ScrollCapturer {
         var previous = firstImage
         var stillSteps = 0
         while stitcher.height < maxHeight {
-            try Task.checkCancellation()
-            Self.moveCursor(to: point)
-            // Shottr also waits between moving the cursor and scrolling; right after the move the events were dropped.
-            try await Task.sleep(for: .milliseconds(80))
-            try await Self.scroll(by: step, at: point)
-            Self.moveCursor(to: parking)
-            // Shottr tolerates failed matches too (its `nilShifts`): a video, spinner or lazy-loaded block
-            // may still be changing, so look again before giving up.
-            var shift: Int?
-            var next = previous
-            for attempt in 0...retries {
-                try await Task.sleep(for: settleDelay)
-                next = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-                shift = stitcher.append(try cropped(next), expectedShift: expected)
-                let match = stitcher.lastMatch
-                Self.log.info("attempt \(attempt): shift \(shift ?? -1) px of expected \(expected), best \(match.best, format: .fixed(precision: 2)), changed \(match.changed, format: .fixed(precision: 2)), height \(stitcher.height)")
-                if shift != nil { break }
+            // Cancelling (hotkey, click, key press) ends the capture like Shottr's interrupt: keep what is stitched.
+            do {
+                try Task.checkCancellation()
+                Self.moveCursor(to: point)
+                // Shottr also waits between moving the cursor and scrolling; right after the move the events were dropped.
+                try await Task.sleep(for: .milliseconds(80))
+                try await Self.scroll(by: step, at: point)
+                Self.moveCursor(to: parking)
+                // Shottr tolerates failed matches too (its `nilShifts`): a video, spinner or lazy-loaded block
+                // may still be changing, so look again before giving up.
+                var shift: Int?
+                var next = previous
+                for attempt in 0...retries {
+                    try await Task.sleep(for: settleDelay)
+                    next = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+                    shift = stitcher.append(try cropped(next), expectedShift: expected)
+                    let match = stitcher.lastMatch
+                    Self.log.info("attempt \(attempt): shift \(shift ?? -1) px of expected \(expected), best \(match.best, format: .fixed(precision: 2)), changed \(match.changed, format: .fixed(precision: 2)), height \(stitcher.height)")
+                    if shift != nil { break }
+                }
+                guard let shift else {
+                    Self.saveForDebugging(previous: previous, failed: next)
+                    // Keep what is already stitched; failing only makes sense before the first step.
+                    if stitcher.height > first.height { break }
+                    throw CaptureError.misaligned
+                }
+                previous = next
+                // A page that is still loading or repainting can sit still for one step; two in a row is the end.
+                stillSteps = shift == 0 ? stillSteps + 1 : 0
+                if stillSteps == 2 { break }
+            } catch is CancellationError {
+                Self.log.info("interrupted")
+                break
             }
-            guard let shift else {
-                Self.saveForDebugging(previous: previous, failed: next)
-                // Keep what is already stitched; failing only makes sense before the first step.
-                if stitcher.height > first.height { break }
-                throw CaptureError.misaligned
-            }
-            previous = next
-            // A page that is still loading or repainting can sit still for one step; two in a row is the end.
-            stillSteps = shift == 0 ? stillSteps + 1 : 0
-            if stillSteps == 2 { break }
         }
         Self.log.info("done: \(stitcher.height) px")
+        // Shottr's "wasn't able to scroll": a plain window screenshot with the success sound would hide the problem.
+        if stillSteps == 2 && stitcher.height == first.height { throw CaptureError.notScrolled }
         guard let result = stitcher.image().cgImage(colorSpace: firstImage.colorSpace) else { throw CaptureError.captureFailed }
         return result
     }

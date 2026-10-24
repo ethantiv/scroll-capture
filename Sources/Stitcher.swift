@@ -9,8 +9,8 @@ struct Frame: Equatable {
 }
 
 /// Glues consecutive screenshots of a scrolling view into one tall image.
-/// Same idea as Shottr's `ScrollCapturer.findShift` + `combine`: find the vertical shift between
-/// two frames, then append only the rows that scrolled into view.
+/// Finds the vertical shift between every two frames, then appends only the rows that scrolled into view.
+/// Shottr instead stacks strips by the commanded step and aligns only the last frame.
 struct Stitcher {
     /// Each row is matched as this many vertical strips, so content that doesn't scroll with the page
     /// (a sticky sidebar, the overlay scroller, an animated ad) spoils only its own strips, not whole rows.
