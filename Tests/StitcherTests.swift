@@ -97,6 +97,16 @@ import Testing
         #expect(stitcher.append(Self.frame(offset: 25), expectedShift: 25) == 25)
     }
 
+    /// Stripes or a table of equal rows match several shifts equally well: take the one closest to the scroll.
+    @Test func repetitiveContentPicksExpectedShift() {
+        let stripes = { (offset: Int) in
+            Frame(width: Self.width, height: Self.viewport,
+                  pixels: (0..<Self.viewport).flatMap { y in (0..<Self.width).map { Self.pageRow((y + offset) % 10, $0) } })
+        }
+        var stitcher = Stitcher(first: stripes(0))
+        #expect(stitcher.append(stripes(25), expectedShift: 25) == 25)
+    }
+
     @Test func unrelatedFrameIsRejectedAndKeepsStitchedImage() {
         var stitcher = Stitcher(first: Self.frame(offset: 0))
         #expect(stitcher.append(Self.frame(offset: 25), expectedShift: 25) == 25)

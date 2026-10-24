@@ -93,10 +93,11 @@ struct ScrollCapturer {
                 // A page that is still loading or repainting can sit still for one step; two in a row is the end.
                 stillSteps = shift == 0 ? stillSteps + 1 : 0
                 if stillSteps == 2 { break }
-            } catch is CancellationError {
-                Self.log.info("interrupted at \(stitcher.height) px")
+            } catch {
+                // An interrupt, or a capture failing mid-run (the window closed or left the screen): keep what is stitched.
+                Self.log.info("stopped at \(stitcher.height) px: \(error.localizedDescription, privacy: .public)")
                 // Nothing stitched yet: a lone window screenshot isn't worth overwriting the clipboard.
-                if stitcher.height == first.height { throw CancellationError() }
+                if stitcher.height == first.height { throw error }
                 break
             }
         }
