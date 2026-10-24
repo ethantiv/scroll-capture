@@ -94,7 +94,9 @@ struct ScrollCapturer {
                 stillSteps = shift == 0 ? stillSteps + 1 : 0
                 if stillSteps == 2 { break }
             } catch is CancellationError {
-                Self.log.info("interrupted")
+                Self.log.info("interrupted at \(stitcher.height) px")
+                // Nothing stitched yet: a lone window screenshot isn't worth overwriting the clipboard.
+                if stitcher.height == first.height { throw CancellationError() }
                 break
             }
         }
