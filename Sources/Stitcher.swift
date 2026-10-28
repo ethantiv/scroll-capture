@@ -21,6 +21,12 @@ struct Stitcher {
     /// Rows that scroll (everything between a static header and footer); empty until the first movement.
     private var band: Range<Int> = 0..<0
     private var body: [UInt32] = []
+    /// The latest frame that didn't line up. A retry captures the same scroll position again,
+    /// so strips that differ between the two are a playing video or animation and are left out of matching.
+    private var unmatched: Frame?
+    /// Columns that no step has changed: a sticky sidebar (x.com's menu). Appended rows get a plain fill there
+    /// instead of repeating the sidebar's bottom with every slice.
+    private var stillColumns: [Bool]
     /// Diagnostics of the latest `append`: share of changed strips that match at the best shift, and share of strips that changed.
     private(set) var lastMatch = Match(shift: nil, best: 0, changed: 0)
 
@@ -35,6 +41,7 @@ struct Stitcher {
     init(first: Frame) {
         self.first = first
         self.last = first
+        self.stillColumns = Array(repeating: true, count: first.width)
     }
 
     /// Returns the shift in pixels, 0 when nothing moved (end of page), nil when the frames don't line up.
@@ -50,11 +57,24 @@ struct Stitcher {
             lastHashes = hashes(last)
         }
         let nextHashes = hashes(next)
-        let match = Self.findShift(lastHashes, nextHashes, expected: expectedShift)
+        var match = Self.findShift(lastHashes, nextHashes, expected: expectedShift)
+        // Only as a fallback: a frame captured while the page was still moving would mark every strip as animated.
+        if match.shift == nil, let unmatched {
+            let animated = zip(hashes(unmatched), nextHashes).map { $0 != $1 }
+            match = Self.findShift(lastHashes, nextHashes, expected: expectedShift, ignoring: animated)
+        }
         lastMatch = match
+        unmatched = match.shift == nil ? next : nil
         // Keep the band only from a pair that really moved: one fixed by a spinner or a dropped scroll would spoil every later step.
         if fresh && (match.shift ?? 0) == 0 { band = 0..<0; body = []; return match.shift }
         guard let shift = match.shift else { return nil }
+        if shift > 0 {
+            // Up to 4 changed pixels is antialiasing noise: x.com's menu icons differ by single pixels between frames.
+            let before = last.pixels, band = band
+            for x in 0..<w where stillColumns[x] {
+                stillColumns[x] = band.lazy.filter { before[$0 * w + x] != next.pixels[$0 * w + x] }.prefix(5).count < 5
+            }
+        }
         body += next.pixels[(band.upperBound - shift) * w..<band.upperBound * w]
         last = next
         lastHashes = nextHashes
@@ -65,6 +85,14 @@ struct Stitcher {
     func image() -> Frame {
         guard !band.isEmpty else { return first }
         let w = first.width
+        var body = body
+        // The column's most common colour: the sidebar's background, or a border line running the whole height.
+        for x in 0..<w where stillColumns[x] {
+            var counts: [UInt32: Int] = [:]
+            for y in band { counts[first.pixels[y * w + x], default: 0] += 1 }
+            let fill = counts.max { $0.value < $1.value }!.key
+            for i in stride(from: band.count * w + x, to: body.count, by: w) { body[i] = fill }
+        }
         let pixels = Array(first.pixels[..<(band.lowerBound * w)]) + body + Array(last.pixels[(band.upperBound * w)...])
         return Frame(width: w, height: pixels.count / w, pixels: pixels)
     }
@@ -96,15 +124,15 @@ struct Stitcher {
     /// closest to how far we scrolled. The page never moves further than that (it stops short at the end).
     /// Only strips that changed between the frames are scored: static wallpaper, a stuck sticky column or blank margins
     /// match at any shift and would drown out the content that actually scrolled (a page whose content column is
-    /// under half the width never reached a whole-frame threshold).
-    static func findShift(_ prev: [UInt64], _ next: [UInt64], expected: Int) -> Match {
+    /// under half the width never reached a whole-frame threshold). Strips flagged in `animated` aren't scored either.
+    static func findShift(_ prev: [UInt64], _ next: [UInt64], expected: Int, ignoring animated: [Bool] = []) -> Match {
         let n = prev.count / strips
         let changed = zip(prev, next).map { $0 != $1 }
         let changedShare = Double(changed.lazy.filter { $0 }.count) / Double(max(prev.count, 1))
         if changedShare <= 0.02 { return Match(shift: 0, best: 1, changed: changedShare) }
         func score(_ dy: Int) -> Double {
             var hits = 0, total = 0
-            for i in 0..<((n - dy) * strips) where changed[i] {
+            for i in 0..<((n - dy) * strips) where changed[i] && (animated.isEmpty || !animated[i]) {
                 total += 1
                 if next[i] == prev[i + dy * strips] { hits += 1 }
             }

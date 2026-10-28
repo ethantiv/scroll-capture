@@ -10,8 +10,9 @@ import Testing
 
     /// A window scrolled to `offset`. Options add things that don't scroll with the page:
     /// a static sidebar (`sidebarWidth` columns on the left), an overlay scroller (last 2) whose thumb follows the offset,
-    /// and a fixed box floating over the middle of the content.
-    static func frame(offset: Int, sidebarWidth: Int = 0, scroller: Bool = false, fixedBox: Bool = false) -> Frame {
+    /// and a fixed box floating over the middle of the content. `videoTime` adds a video that scrolls with the page
+    /// (page rows 28..<70) and shows a different picture at every time.
+    static func frame(offset: Int, sidebarWidth: Int = 0, scroller: Bool = false, fixedBox: Bool = false, videoTime: Int? = nil) -> Frame {
         var pixels: [UInt32] = []
         for y in 0..<(header + viewport + footer) {
             for x in 0..<width {
@@ -20,9 +21,12 @@ import Testing
                 case (header + viewport)...: pixels.append(0xBB00_0000 | UInt32(x))
                 default:
                     let row = y - header
-                    if x < sidebarWidth { pixels.append(0xCC00_0000 | UInt32(row * 7 + x)) }
+                    if x < sidebarWidth { pixels.append(row % 5 == 0 ? 0xCC00_0000 | UInt32(row * 7 + x) : 0xCCFF_FFFF) }
                     else if scroller && x >= width - 2 { pixels.append(abs(row - offset / 3) < 4 ? 0xFFFF_FFFF : 0) }
                     else if fixedBox && (14..<18).contains(x) && (10..<20).contains(row) { pixels.append(0xDD00_0000 | UInt32(row)) }
+                    else if let videoTime, (4..<28).contains(x), (28..<70).contains(row + offset) {
+                        pixels.append(pageRow(row + offset + videoTime * 1000, x) ^ 0xEE00_0000)
+                    }
                     else { pixels.append(pageRow(row + offset, x)) }
                 }
             }
@@ -52,6 +56,9 @@ import Testing
         #expect(image.height == Self.header + Self.pageHeight + Self.footer)
         for y in 0..<Self.pageHeight {
             #expect(image.pixels[(Self.header + y) * Self.width + 10] == Self.pageRow(y, 10))
+            // x.com: the sticky sidebar shows once, then its background instead of its bottom with every slice.
+            let sidebar = y < Self.viewport ? frame(0).pixels[(Self.header + y) * Self.width + 2] : 0xCCFF_FFFF
+            #expect(image.pixels[(Self.header + y) * Self.width + 2] == sidebar)
         }
     }
 
@@ -95,6 +102,19 @@ import Testing
         for i in (Self.header + 10) * Self.width..<(Self.header + 12) * Self.width { spinner.pixels[i] ^= 0xFF }
         #expect(stitcher.append(spinner, expectedShift: 25) == nil)
         #expect(stitcher.append(Self.frame(offset: 25), expectedShift: 25) == 25)
+    }
+
+    /// x.com: a video playing in the overlap spoils most strips at every shift, and retrying alone never helps.
+    @Test func playingVideoIsLeftOutOnRetry() {
+        var stitcher = Stitcher(first: Self.frame(offset: 0, videoTime: 0))
+        let steps = [(25, 1), (25, 2), (50, 3), (50, 4), (75, 5)] // each failed step is captured again in place
+        let shifts = steps.map { stitcher.append(Self.frame(offset: $0.0, videoTime: $0.1), expectedShift: 25) }
+        #expect(shifts == [nil, 25, nil, 25, 25])
+        let image = stitcher.image()
+        #expect(image.height == Self.header + 75 + Self.viewport + Self.footer)
+        for y in 0..<(75 + Self.viewport) {
+            #expect(image.pixels[(Self.header + y) * Self.width + 1] == Self.pageRow(y, 1))
+        }
     }
 
     /// Stripes or a table of equal rows match several shifts equally well: take the one closest to the scroll.
