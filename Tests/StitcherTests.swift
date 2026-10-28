@@ -71,6 +71,16 @@ import Testing
         #expect(stitcher.image().height == Self.header + Self.pageHeight + Self.footer)
     }
 
+    /// x.com: strips divide only the columns that scroll, the sidebar is left out; too narrow a span falls back to the whole width.
+    @Test func changedColumnsSkipStaticSidebar() {
+        let rows = Self.header..<(Self.header + Self.viewport)
+        let columns = { (sidebar: Int) in
+            Stitcher.changedColumns(Self.frame(offset: 0, sidebarWidth: sidebar), Self.frame(offset: 25, sidebarWidth: sidebar), rows: rows)
+        }
+        #expect(columns(6) == 6..<Self.width)
+        #expect(columns(18) == 0..<Self.width)
+    }
+
     @Test func unscrollableWindowGivesSingleFrame() {
         var stitcher = Stitcher(first: Self.frame(offset: 0))
         #expect(stitcher.append(Self.frame(offset: 0), expectedShift: 25) == 0)

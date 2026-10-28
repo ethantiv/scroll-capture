@@ -35,12 +35,15 @@ final class RegionPicker: NSWindow {
         contentView = SelectionView()
         makeKeyAndOrderFront(nil)
         NSApp.activate()
+        NSCursor.crosshair.set()
     }
 
     fileprivate func finish(_ result: Result<CGRect?, any Error>) {
         guard let continuation else { return }
         self.continuation = nil
         orderOut(nil)
+        // The crosshair is set by hand, so nothing resets it until the mouse moves over another app (Esc leaves it still).
+        NSCursor.arrow.set()
         previousApp?.activate()
         continuation.resume(with: result)
     }
@@ -59,7 +62,16 @@ private final class SelectionView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+
+    /// Cursor rects work only in the key window of the active app; this tracking area sets the crosshair regardless.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func cursorUpdate(with event: NSEvent) { NSCursor.crosshair.set() }
+    override func mouseMoved(with event: NSEvent) { NSCursor.crosshair.set() }
 
     override func mouseDown(with event: NSEvent) { start = convert(event.locationInWindow, from: nil) }
 

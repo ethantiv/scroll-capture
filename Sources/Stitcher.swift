@@ -20,6 +20,9 @@ struct Stitcher {
     private var lastHashes: [UInt64] = []
     /// Rows that scroll (everything between a static header and footer); empty until the first movement.
     private var band: Range<Int> = 0..<0
+    /// Columns that scroll (between static sidebars), found with the band. Strips divide only these: a strip straddling
+    /// x.com's column and its sidebar never matched, as the sidebar doesn't move, and a picked region had no such strips.
+    private var columns: Range<Int> = 0..<0
     private var body: [UInt32] = []
     /// The latest frame that didn't line up. A retry captures the same scroll position again,
     /// so strips that differ between the two are a playing video or animation and are left out of matching.
@@ -53,6 +56,7 @@ struct Stitcher {
         if fresh {
             guard let rows = Self.changedRows(first, next) else { return 0 }
             band = rows
+            columns = Self.changedColumns(first, next, rows: rows)
             body = Array(first.pixels[band.lowerBound * w..<band.upperBound * w])
             lastHashes = hashes(last)
         }
@@ -69,10 +73,9 @@ struct Stitcher {
         if fresh && (match.shift ?? 0) == 0 { band = 0..<0; body = []; return match.shift }
         guard let shift = match.shift else { return nil }
         if shift > 0 {
-            // Up to 4 changed pixels is antialiasing noise: x.com's menu icons differ by single pixels between frames.
             let before = last.pixels, band = band
             for x in 0..<w where stillColumns[x] {
-                stillColumns[x] = band.lazy.filter { before[$0 * w + x] != next.pixels[$0 * w + x] }.prefix(5).count < 5
+                stillColumns[x] = !Self.columnChanged(before, next.pixels, x: x, width: w, rows: band)
             }
         }
         body += next.pixels[(band.upperBound - shift) * w..<band.upperBound * w]
@@ -99,13 +102,13 @@ struct Stitcher {
 
     /// One hash per (band row, strip), row-major.
     private func hashes(_ frame: Frame) -> [UInt64] {
-        let w = frame.width, strips = Self.strips
+        let w = frame.width, strips = Self.strips, left = columns.lowerBound, span = columns.count
         var result: [UInt64] = []
         result.reserveCapacity(band.count * strips)
         for y in band {
             for s in 0..<strips {
                 var h: UInt64 = 0xcbf29ce484222325
-                for x in (s * w / strips)..<((s + 1) * w / strips) { h = (h ^ UInt64(frame.pixels[y * w + x])) &* 0x100000001b3 }
+                for x in (left + s * span / strips)..<(left + (s + 1) * span / strips) { h = (h ^ UInt64(frame.pixels[y * w + x])) &* 0x100000001b3 }
                 result.append(h)
             }
         }
@@ -117,6 +120,19 @@ struct Stitcher {
         let changed = (0..<a.height).filter { y in a.pixels[y * w..<(y + 1) * w] != b.pixels[y * w..<(y + 1) * w] }
         guard let top = changed.first, let bottom = changed.last else { return nil }
         return top..<(bottom + 1)
+    }
+
+    /// Columns from the first to the last changed one; the whole width when that is too narrow to split into strips.
+    static func changedColumns(_ a: Frame, _ b: Frame, rows: Range<Int>) -> Range<Int> {
+        let w = a.width
+        let moving = { (x: Int) in columnChanged(a.pixels, b.pixels, x: x, width: w, rows: rows) }
+        guard let left = (0..<w).first(where: moving), let right = (0..<w).last(where: moving), right - left >= strips else { return 0..<w }
+        return left..<(right + 1)
+    }
+
+    /// At least 5 of `rows` differ in column `x`: fewer is antialiasing noise (x.com's menu icons differ by single pixels between frames).
+    static func columnChanged(_ a: [UInt32], _ b: [UInt32], x: Int, width w: Int, rows: Range<Int>) -> Bool {
+        rows.lazy.filter { a[$0 * w + x] != b[$0 * w + x] }.prefix(5).count == 5
     }
 
     /// Shift `dy` such that next[r] == prev[r + dy], scored by the share of matching strips.
