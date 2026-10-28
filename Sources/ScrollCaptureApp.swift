@@ -12,8 +12,8 @@ struct ScrollCaptureApp: App {
     var body: some Scene {
         MenuBarExtra {
             if let status = appDelegate.status { Text(status) }
-            // The capture takes the window under the cursor, which a menu click leaves over the menu: start it with the hotkey only.
-            if appDelegate.busy { Button("Przerwij") { appDelegate.trigger() } } else { Text("Zrzut przewijany: ⌃⌥⌘S nad oknem") }
+            // Space takes the window under the cursor, which a menu click leaves over the menu: start it with the hotkey only.
+            if appDelegate.busy { Button("Przerwij") { appDelegate.trigger() } } else { Text("Zrzut przewijany: ⌃⌥⌘S, zaznacz obszar (spacja: okno pod kursorem)") }
             Toggle("Zapisuj do pliku", isOn: $saveToFile)
             Toggle("Uruchamiaj przy logowaniu", isOn: Binding(get: { appDelegate.launchAtLogin },
                                                                set: { appDelegate.setLaunchAtLogin($0) }))
@@ -64,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSSound.beep()
             return
         }
-        status = "Przewijam… (klik, klawisz lub ⌃⌥⌘S kończy)"
+        status = "Zaznacz obszar (spacja: okno pod kursorem, Esc: anuluj)"
         // Like Shottr's monitor: the user grabbing the mouse would otherwise fight the cursor moves. Our own events are only moves and scrolls.
         let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] _ in
             MainActor.assumeIsolated { self?.task?.cancel() }
@@ -75,7 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let monitor { NSEvent.removeMonitor(monitor) }
             }
             do {
-                let image = try await ScrollCapturer().capture()
+                // The overlay is this app's own window, so the global monitor doesn't see the drag, Space or Esc.
+                let region = try await RegionPicker.pick()
+                status = "Przewijam… (klik, klawisz lub ⌃⌥⌘S kończy)"
+                let image = try await ScrollCapturer().capture(region: region)
                 status = deliver(image)
                 NSSound(named: "Glass")?.play()
             } catch is CancellationError {

@@ -26,22 +26,29 @@ struct ScrollCapturer {
     /// Extra captures after a failed match before the capture stops.
     var retries = 3
 
-    func capture() async throws -> CGImage {
+    /// `region` (global top-left points) narrows the capture to a picked part of the scroll area; nil takes the area under the cursor.
+    func capture(region: CGRect? = nil) async throws -> CGImage {
         try await Self.waitForModifierRelease()
-        guard let point = CGEvent(source: nil)?.location else { throw CaptureError.noWindow }
+        // The window and the scroll area are looked up, and scrolled, at the region's centre.
+        guard let point = region.map({ CGPoint(x: $0.midX, y: $0.midY) }) ?? CGEvent(source: nil)?.location else { throw CaptureError.noWindow }
         let (filter, config, bounds) = try await Self.windowFilter(at: point)
         let scale = CGFloat(filter.pointPixelScale)
         // Only the scrolling view (Safari's page without its toolbar and tabs), in the captured image's pixels.
         // An AX area outside the picked window (a floating panel on top) intersects to null: fall back to the window.
         let hit = Self.scrollArea(at: point)?.intersection(bounds) ?? .null
         let area = hit.isEmpty ? bounds : hit
-        // A third of the scroll area per step, Shottr's cap too: two thirds of every frame overlap the previous one.
-        let step = Int32(area.height / 3)
+        let picked = region?.intersection(area) ?? .null
+        let shot = picked.isEmpty ? area : picked
+        // A third of the captured height per step, Shottr's cap too: two thirds of every frame overlap the previous one.
+        let step = Int32(shot.height / 3)
         let expected = Int(CGFloat(step) * scale)
         let parking = Self.parkingSpot(outside: bounds)
-        var crop = CGRect(x: (area.minX - bounds.minX) * scale, y: (area.minY - bounds.minY) * scale,
-                          width: area.width * scale, height: area.height * scale).integral
-        Self.log.info("start: window \(bounds.debugDescription, privacy: .public) scroll area \(area.debugDescription, privacy: .public) scale \(scale) step \(step) pt, AX trusted \(AXIsProcessTrusted())")
+        func pixels(_ rect: CGRect) -> CGRect {
+            CGRect(x: (rect.minX - bounds.minX) * scale, y: (rect.minY - bounds.minY) * scale,
+                   width: rect.width * scale, height: rect.height * scale).integral
+        }
+        var crop = pixels(area)
+        Self.log.info("start: window \(bounds.debugDescription, privacy: .public) scroll area \(area.debugDescription, privacy: .public) region \(shot.debugDescription, privacy: .public) scale \(scale) step \(step) pt, AX trusted \(AXIsProcessTrusted())")
         // Like Shottr: the cursor sits over the window only while scrolling and is parked elsewhere for every capture,
         // so hover effects (highlighted rows, tooltips, a widened scroller) don't differ between frames.
         Self.moveCursor(to: parking)
@@ -53,7 +60,7 @@ struct ScrollCapturer {
         // Trimming the corner radius also drops the overlay scroller at the right edge.
         // Capped: a translucent window (a see-through terminal) has no opaque pixel in the bottom row at all.
         let trim = min(max(Frame(firstImage).cornerRadius, Int(16 * scale)), Int(32 * scale))
-        crop = crop.insetBy(dx: CGFloat(trim), dy: 0)
+        crop = crop.insetBy(dx: CGFloat(trim), dy: 0).intersection(pixels(shot))
         func cropped(_ image: CGImage) throws -> Frame {
             guard let part = image.cropping(to: crop) else { throw CaptureError.captureFailed }
             return Frame(part)
