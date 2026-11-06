@@ -7,9 +7,6 @@ Aplikacja w pasku menu macOS, która robi przewijany zrzut ekranu okna. Naciśni
 - macOS 27 na Macu z procesorem Apple
 - Xcode
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen): `brew install xcodegen`
-- Certyfikat do podpisywania kodu o nazwie `Local Self-Signed` w pęku kluczy logowania
-
-Jeśli nie masz certyfikatu, utwórz go w aplikacji Dostęp do pęku kluczy: **Dostęp do pęku kluczy > Asystent certyfikatów > Utwórz certyfikat**, nazwa `Local Self-Signed`, typ certyfikatu **Podpisywanie kodu**. Dzięki stałemu certyfikatowi macOS pamięta nadane uprawnienia po każdej przebudowie.
 
 ## Budowanie i instalacja
 
@@ -26,7 +23,7 @@ Jeśli nie masz certyfikatu, utwórz go w aplikacji Dostęp do pęku kluczy: **D
    scripts/install.sh
    ```
 
-   Skrypt zastępuje poprzednią kopię `/Applications/ScrollCapture.app` i uruchamia aplikację. Ikona pojawia się w pasku menu.
+   Przy pierwszym uruchomieniu skrypt tworzy w pęku kluczy logowania certyfikat do podpisywania kodu `Local Self-Signed`, a macOS prosi o hasło, żeby mu zaufać. Dzięki stałemu certyfikatowi system pamięta nadane uprawnienia po każdej przebudowie. Skrypt zastępuje poprzednią kopię `/Applications/ScrollCapture.app` i uruchamia aplikację. Ikona pojawia się w pasku menu.
 
 3. Przy pierwszym zrzucie nadaj aplikacji uprawnienia w **Ustawieniach systemowych > Prywatność i ochrona**:
    - **Dostępność**: aplikacja przewija okno syntetycznymi zdarzeniami.

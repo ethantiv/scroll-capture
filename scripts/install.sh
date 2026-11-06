@@ -2,6 +2,7 @@
 # Release build → /Applications/ScrollCapture.app, replacing and relaunching the running copy.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+scripts/cert.sh
 xcodegen generate
 xcodebuild build -project ScrollCapture.xcodeproj -scheme ScrollCapture \
   -destination 'platform=macOS,arch=arm64' -configuration Release -derivedDataPath .build/dd -quiet
